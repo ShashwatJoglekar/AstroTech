@@ -1,0 +1,18 @@
+# Blender temporary files
+*.blend1
+*.blend2
+*.blend@ 
+*.tmp
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Blender autosave files
+*.autosave.blend
