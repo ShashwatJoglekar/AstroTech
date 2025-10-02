@@ -1,6 +1,13 @@
 import bpy
+import os
 
-def create_uv_sphere(location, radius, segments=32, rings=16, name="MySphere", color=(1, 1, 1, 1)):
+def create_uv_sphere(location,
+                     radius,
+                     segments=32,
+                     rings=16,
+                     name="MySphere",
+                     color=(1, 1, 1, 1),
+                     texture_path=None):
     """
     Creates a UV sphere in Blender.
 
@@ -27,8 +34,17 @@ def create_uv_sphere(location, radius, segments=32, rings=16, name="MySphere", c
     mat = bpy.data.materials.new(name + "_Material")
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
-    if bsdf:
-        bsdf.inputs[0].default_value = color
+    
+    if texture_path and os.path.exists(texture_path):
+        img = bpy.data.images.load(texture_path) # load image
+
+        tex_image = mat.node_tree.nodes.new("ShaderNodeTexImage") # create texture node
+        tex_image.image = img
+
+        mat.node_tree.links.new(tex_image.outputs["Color"], bsdf.inputs["Base Color"])
+    else: # solid color
+        if bsdf:
+            bsdf.inputs[0].default_value = color
 
     new_sphere.data.materials.clear()
     new_sphere.data.materials.append(mat)
