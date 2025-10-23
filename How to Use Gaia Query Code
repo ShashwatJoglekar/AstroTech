@@ -1,0 +1,10 @@
+How to Use Gaia Query Code
+
+Query 1,000 stars with all parameters:
+python gaia_stellar_data.py -n 1000
+
+Query nearby stars (within 100 parsecs):
+python gaia_stellar_data.py --nearby 100 -n 5000
+
+Custom output file:
+python gaia_stellar_data.py -n 500 -o my_stars.csv
