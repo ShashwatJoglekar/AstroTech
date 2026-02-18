@@ -237,7 +237,7 @@ def add_planet(cfg):
     spin_ctrl.rotation_euler = (math.radians(cfg.get("tilt_deg", 0.0)), 0.0, 0.0)
     animate_spin(spin_ctrl, frames_per_rotation=cfg["day_frames"], start_frame=1, direction=cfg.get("spin_dir", 1))
 
-    # Planet mesh, child of spin ctrl (stays at local origin)
+    # Planet mesh
     planet = add_sphere(f"Planet-{name}", location=(0,0,0), radius=cfg["radius"])
     planet.parent = spin_ctrl
     link_to_collection(planet)
@@ -249,7 +249,7 @@ def add_planet(cfg):
     # Shape (oblateness) on mesh only (not on controllers)
     set_oblateness(planet, cfg.get("flattening", 0.0))
 
-    # Rings (parented to spin ctrl so they share tilt & spin, but not mesh scale)
+    # Rings
     if cfg.get("with_rings", False):
         major_inner = cfg.get("rings_inner", 1.2) * cfg["radius"]
         major_outer = cfg.get("rings_outer", 2.2) * cfg["radius"]
@@ -314,7 +314,7 @@ def add_sun(cfg, strength=8.0):
 def add_moon(earth_bundle, name="Moon", radius=0.27, orbit_radius=1.8, day_frames=120, year_frames=300):
     """Moon orbits Earth: parent its orbit curve to Earth's ORBIT CTRL."""
     earth_orbit_ctrl = earth_bundle["orbit"]
-    # orbit curve (parented so it travels with Earth)
+    # orbit curve
     curve = add_orbit_curve(f"Orbit-{name}", radius=orbit_radius, center=(0,0,0))
     curve.parent = earth_orbit_ctrl
     curve.matrix_parent_inverse.identity()
@@ -329,7 +329,7 @@ def add_moon(earth_bundle, name="Moon", radius=0.27, orbit_radius=1.8, day_frame
     ensure_follow_path(orbit_ctrl, curve)
     animate_orbit_with_eval_time(curve, frames_per_revolution=year_frames, start_frame=1)
 
-    # spin controller for the moon (you can tilt minimally if desired)
+    # spin controller for the moon
     spin_ctrl = bpy.data.objects.new(f"SpinCtrl-{name}", None)
     spin_ctrl.empty_display_type = 'SPHERE'
     bpy.context.scene.collection.objects.link(spin_ctrl)
@@ -347,7 +347,7 @@ def add_moon(earth_bundle, name="Moon", radius=0.27, orbit_radius=1.8, day_frame
     return dict(mesh=moon, spin=spin_ctrl, orbit=orbit_ctrl, curve=curve)
 
 # =========================
-# DATA (scaled & simplified)
+# DATA (temporary)
 # =========================
 Y = {  # orbital periods in Earth years
     "Mercury": 0.2408467, "Venus": 0.61519726, "Earth": 1.0, "Mars": 1.8808158,
@@ -417,7 +417,7 @@ if __name__ == "__main__":
         )
         bundles[name] = add_planet(cfg)
 
-    # Optional: Moon
+    # Moons
     if "Earth" in bundles:
         add_moon(bundles["Earth"], name="Moon",
                  radius=0.27, orbit_radius=1.8,
