@@ -132,14 +132,25 @@ def add_sphere(name, location=(0,0,0), radius=1.0):
     bpy.ops.object.shade_smooth()
     return obj
 
-def add_orbit_curve(name, radius=5.0, center=(0,0,0)):
+def add_orbit_curve(name, radius=5.0, center=(0,0,0), ellipse_factor=1.0):
+    """
+    Create an orbit path. ellipse_factor != 1 makes it elliptical by scaling X.
+    ellipse_factor > 1.0  -> stretched along X
+    ellipse_factor < 1.0  -> squashed along X
+    """
     bpy.ops.curve.primitive_bezier_circle_add(radius=radius, location=center)
-    curve = bpy.context.object; curve.name = name
+    curve = bpy.context.object
+    curve.name = name
+
     cu = curve.data
-    # No fill_mode='NONE' in Blender 4.5; bevel=0 already makes it a thin guide
+    # keep as a thin guide path
     cu.bevel_depth = 0.0
-    cu.use_path = True # REQUIRED for eval_time animation
+    cu.use_path = True  # REQUIRED for eval_time animation
     cu.path_duration = EARTH_YEAR_FRAMES
+
+    # 🔸 Make the orbit elliptical by non-uniform scaling
+    curve.scale[0] *= ellipse_factor  # X axis
+
     return curve
 
 def set_oblateness(obj, flattening=0.0):
@@ -215,7 +226,11 @@ def add_planet(cfg):
     name = cfg['name']
 
     # Orbit path
-    orbit_curve = add_orbit_curve(f"Orbit-{name}", radius=cfg["orbit_radius"])
+    orbit_curve = add_orbit_curve(
+    f"Orbit-{name}",
+    radius=cfg["orbit_radius"],
+    ellipse_factor=cfg.get("ellipse_factor", 1.0)
+    )
     link_to_collection(orbit_curve)
 
     # Orbit controller (follows the path)
@@ -399,12 +414,15 @@ if __name__ == "__main__":
     # Planets
     bundles = {}
     order = ["Mercury","Venus","Earth","Mars","Jupiter","Saturn","Uranus","Neptune"]
+
     for name in order:
         cfg = dict(
             name=name,
             radius=R[name],
-            color=(1,1,1,1),
-            texture=os.path.join(TEX_DIR, f"{name.lower()}.jpg") if os.path.exists(os.path.join(TEX_DIR, f"{name.lower()}.jpg")) else None,
+            color=(1, 1, 1, 1),
+            texture=os.path.join(
+                TEX_DIR, f"{name.lower()}.jpg"
+            ) if os.path.exists(os.path.join(TEX_DIR, f"{name.lower()}.jpg")) else None,
             tilt_deg=TILT[name],
             flattening=FLAT[name],
             orbit_radius=A[name] * SYSTEM_SCALE,
@@ -413,7 +431,9 @@ if __name__ == "__main__":
             spin_dir=spin_dir(ROT_H[name]),
             with_rings=(name == "Saturn"),
             rings_inner=1.2,
-            rings_outer=2.2
+            rings_outer=2.2,
+            # elliptical orbits: >1.0 = stretched along X
+            ellipse_factor=1.2
         )
         bundles[name] = add_planet(cfg)
 
@@ -421,8 +441,8 @@ if __name__ == "__main__":
     if "Earth" in bundles:
         add_moon(bundles["Earth"], name="Moon",
                  radius=0.27, orbit_radius=1.8,
-                 day_frames=frames_for_day(655.7/24.0),
+                 day_frames=frames_for_day(655.7 / 24.0),
                  year_frames=int(EARTH_YEAR_FRAMES * 0.0748))
 
     bpy.context.scene.frame_set(1)
-    bpy.context.view_layer.update()     
+    bpy.context.view_layer.update()
