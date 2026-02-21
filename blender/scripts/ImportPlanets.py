@@ -2,6 +2,7 @@ import bpy
 import sys
 import os
 import importlib
+import math
 
 # Import other scripts
 blend_dir = os.path.dirname(bpy.data.filepath)
@@ -83,6 +84,14 @@ class AstroObject:
         self.rings_outer = rings_outer
 
 
+
+# =========================
+# SCALE FACTORS
+# =========================
+RADIUS_SCALE = 1e-6
+ORBIT_SCALE  = 20
+
+
 # =========================
 # SOLAR SYSTEM DEFINITION
 # =========================
@@ -97,16 +106,21 @@ SolarSystem = {
     ),
     "Mercury": dict(
         name="Mercury",
+
         radius=0.30,
         color=(1, 1, 1, 1),
         texture=os.path.join(TEX_DIR, "8k_mercury.jpg"),
         tilt_deg=0.03,
         flattening=0.00006,
-        orbit_radius=10.0,
         year_frames=max(60, int(EARTH_YEAR_FRAMES * 0.2408467 / 3)),
         day_frames=frames_for_day(1407.5),
         spin_dir=spin_dir(1407.5),
-        ellipse_factor = 1.206
+
+        orbit_radius= ORBIT_SCALE * 0.387,
+        ecc=0.21,
+        inc=7.004,
+        asc=48.33,
+        peri=77.45,
     ),
     "Venus": dict(
         name="Venus",
@@ -115,11 +129,16 @@ SolarSystem = {
         texture=os.path.join(TEX_DIR, "8k_venus.jpg"),
         tilt_deg=177.4,
         flattening=0.0001,
-        orbit_radius=15.0,
+        
         year_frames=max(60, int(EARTH_YEAR_FRAMES * 0.61519726 / 3)),
         day_frames=frames_for_day(-5832.5),
         spin_dir=spin_dir(-5832.5),
-        ellipse_factor = 1.0067
+
+        orbit_radius= ORBIT_SCALE * 0.723,
+        ecc=0.007,
+        inc=3.394,
+        asc=76.68,
+        peri=131.5637,
         
     ),
     "Earth": dict(
@@ -129,11 +148,15 @@ SolarSystem = {
         texture=os.path.join(TEX_DIR, "8k_earth_daymap.jpg"),
         tilt_deg=23.44,
         flattening=1/298.257,
-        orbit_radius=22.0,
         year_frames=int(EARTH_YEAR_FRAMES / 3),
         day_frames=frames_for_day(23.934),
         spin_dir=spin_dir(23.934),
-        ellipse_factor = 1.0167
+
+        orbit_radius= ORBIT_SCALE * 1,
+        ecc=0.0167,
+        inc=0,
+        asc=0,
+        peri=102.9374,
     ),
     "Mars": dict(
         name="Mars",
@@ -142,11 +165,15 @@ SolarSystem = {
         texture=os.path.join(TEX_DIR, "8k_mars.jpg"),
         tilt_deg=25.19,
         flattening=0.00589,
-        orbit_radius=30.0,
+        orbit_radius= ORBIT_SCALE * 1.524,
         year_frames=max(60, int(EARTH_YEAR_FRAMES * 1.8808158 / 3)),
         day_frames=frames_for_day(24.623),
         spin_dir=spin_dir(24.623),
-        ellipse_factor = 1.0934
+
+        ecc=0.0934,
+        inc=1.8497,
+        asc=49.558,
+        peri=336.60,
     ),
     "Jupiter": dict(
         name="Jupiter",
@@ -155,11 +182,15 @@ SolarSystem = {
         texture=os.path.join(TEX_DIR, "8k_jupiter.jpg"),
         tilt_deg=3.13,
         flattening=0.06487,
-        orbit_radius=45.0,
+        orbit_radius= ORBIT_SCALE * 5.2027,
         year_frames=max(60, int(EARTH_YEAR_FRAMES * 11.862 / 3)),
         day_frames=frames_for_day(9.925),
         spin_dir=spin_dir(9.925),
-        ellipse_factor = 1.048
+
+        ecc=0.048,
+        inc=1.303,
+        asc=100.464,
+        peri=14.331,
     ),
     "Saturn": dict(
         name="Saturn",
@@ -168,14 +199,18 @@ SolarSystem = {
         texture=os.path.join(TEX_DIR, "8k_saturn.jpg"),
         tilt_deg=26.73,
         flattening=0.09796,
-        orbit_radius=60.0,
+        orbit_radius= ORBIT_SCALE * 9.542,
         year_frames=max(60, int(EARTH_YEAR_FRAMES * 29.457 / 3)),
         day_frames=frames_for_day(10.656),
         spin_dir=spin_dir(10.656),
         with_rings=True,
         rings_inner=2.0,
         rings_outer=3.3,
-        ellipse_factor = 1.054
+
+        ecc=0.055,
+        inc=2.488,
+        asc=113.666,
+        peri=93.057,
     ),
     "Uranus": dict(
         name="Uranus",
@@ -184,11 +219,15 @@ SolarSystem = {
         texture=os.path.join(TEX_DIR, "2k_uranus.jpg"),
         tilt_deg=97.77,
         flattening=0.0229,
-        orbit_radius=75.0,
+        orbit_radius= ORBIT_SCALE * 19.192,
         year_frames=max(60, int(EARTH_YEAR_FRAMES * 84.016846 / 3)),
         day_frames=frames_for_day(-17.24),
         spin_dir=spin_dir(-17.24),
-        ellipse_factor = 1.0457
+
+        ecc=0.046,
+        inc=0.773,
+        asc=74.01,
+        peri=173.01,
     ),
     "Neptune": dict(
         name="Neptune",
@@ -197,20 +236,19 @@ SolarSystem = {
         texture=os.path.join(TEX_DIR, "2k_neptune.jpg"),
         tilt_deg=28.32,
         flattening=0.0171,
-        orbit_radius=90.0,
+        orbit_radius= ORBIT_SCALE * 30.068,
         year_frames=max(60, int(EARTH_YEAR_FRAMES * 164.8 / 3)),
         day_frames=frames_for_day(16.11),
         spin_dir=spin_dir(16.11),
-        ellipse_factor = 1.0086
+        
+        ecc=0.008,
+        inc=1.770,
+        asc=131.78,
+        peri=48.12,
     )
 }
 
 
-# =========================
-# SCALE FACTORS
-# =========================
-RADIUS_SCALE = 1e-6
-ORBIT_SCALE  = 1e-9
 
 
 # =========================
