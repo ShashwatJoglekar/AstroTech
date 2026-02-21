@@ -204,13 +204,22 @@ def add_sphere(name, location=(0,0,0), radius=1.0):
  
     return add_uv_sphere(name, location, radius)
 
-def add_orbit_curve(name, radius=5.0, center=(0,0,0), ellipse_factor=1.0):
+def add_orbit_curve(
+        name, 
+        semi_major_axis,
+        center=(0,0,0), 
+        eccentricity=1.0,
+        inclination=0.0,
+        arg_periapsis=0.0,
+        long_asc_node=0.0
+        ):
     """
-    Create an orbit path. ellipse_factor != 1 makes it elliptical by scaling X.
-    ellipse_factor > 1.0  -> stretched along X
-    ellipse_factor < 1.0  -> squashed along X
+    Create an orbit path. 
     """
-    bpy.ops.curve.primitive_bezier_circle_add(radius=radius, location=center)
+    bpy.ops.curve.primitive_bezier_circle_add(
+        radius=semi_major_axis, 
+        location=center
+    )
     curve = bpy.context.object
     curve.name = name
 
@@ -220,8 +229,25 @@ def add_orbit_curve(name, radius=5.0, center=(0,0,0), ellipse_factor=1.0):
     cu.use_path = True  # REQUIRED for eval_time animation
     cu.path_duration = EARTH_YEAR_FRAMES
 
-    # 🔸 Make the orbit elliptical by non-uniform scaling
-    curve.scale[0] *= ellipse_factor  # X axis
+    b = semi_major_axis * math.sqrt(1 - eccentricity**2)
+
+    # Scale Y
+    curve.scale[1] = b / semi_major_axis  
+
+
+    # Orbital Orientation
+    asc = math.radians(long_asc_node)
+    inc = math.radians(inclination)
+    peri = math.radians(arg_periapsis)
+
+    curve.rotation_mode = "XYZ"
+    curve.rotation_euler = (0.0, 0.0, 0.0)
+
+    curve.rotation_euler.rotate_axis('Z', asc)
+
+    curve.rotation_euler.rotate_axis('X', inc)
+
+    curve.rotation_euler.rotate_axis('Z', peri)
 
     return curve
 
@@ -303,9 +329,13 @@ def add_planet(cfg):
 
     # Orbit path
     orbit_curve = add_orbit_curve(
-    f"Orbit-{name}",
-    radius=cfg["orbit_radius"],
-    ellipse_factor=cfg.get("ellipse_factor", 1.0)
+        f"Orbit-{name}",
+        semi_major_axis=cfg["orbit_radius"],
+        center=cfg.get("center", (0, 0, 0)),
+        eccentricity=cfg.get("ecc", 1.0),
+        inclination=cfg.get("inc", 0.0),
+        arg_periapsis=cfg.get("peri", 0.0),
+        long_asc_node=cfg.get("asc", 0.0)
     )
     link_to_collection(orbit_curve)
 
@@ -512,10 +542,10 @@ def add_moon(
 #    "Jupiter": 28.0, "Saturn": 36.0, "Uranus": 44.0, "Neptune": 52.0
 #}
 
-#def frames_for_day(hours):   # map real hours to frames
-#    return max(10, int(EARTH_DAY_FRAMES * (abs(hours)/24.0)))
-#def spin_dir(hours):         # retrograde sign
-#    return -1 if hours < 0 else 1
+def frames_for_day(hours):   # map real hours to frames
+   return max(10, int(EARTH_DAY_FRAMES * (abs(hours)/24.0)))
+def spin_dir(hours):         # retrograde sign
+   return -1 if hours < 0 else 1
 
 ## =========================
 ## MAIN
