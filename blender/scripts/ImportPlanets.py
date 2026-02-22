@@ -11,7 +11,7 @@ if scripts_dir not in sys.path:
 
 import SolarSystemOrbits
 importlib.reload(SolarSystemOrbits)
-from SolarSystemOrbits import add_planet, add_sun, frames_for_day, spin_dir
+from SolarSystemOrbits import add_planet, add_sun, add_moon, frames_for_day, spin_dir
 
 
 # =========================
@@ -36,14 +36,16 @@ def clear_scene():
 # =========================
 # GLOBAL SETTINGS
 # =========================
-FPS = 30
-EARTH_DAY_FRAMES  = 120 # 1 Earth day = 120 frames (4s @ 30fps)
-EARTH_YEAR_FRAMES = 1200 # 1 Earth year = 1200 frames (40s @ 30fps)
+FPS = 60
+EARTH_DAY_FRAMES  = 180 # 1 Earth day = 120 frames (3s @ 60fps)
+EARTH_YEAR_FRAMES = 1800 # 1 Earth year = 1200 frames (30s @ 60fps)
 SYSTEM_SCALE = 1.0
 RING_ALPHA   = 0.55
 
-BASE_DIR = os.path.dirname(bpy.data.filepath) + os.sep
-TEX_DIR = bpy.path.abspath("//assets/textures/")
+BASE_DIR = bpy.path.abspath("//")
+TEX_DIR = os.path.join(BASE_DIR, "assets", "textures")
+
+TEX_DIR = os.path.normpath(TEX_DIR)
 clear_scene()
 
 
@@ -103,7 +105,8 @@ SolarSystem = {
         orbit_radius=10.0,
         year_frames=max(60, int(EARTH_YEAR_FRAMES * 0.2408467 / 3)),
         day_frames=frames_for_day(1407.5),
-        spin_dir=spin_dir(1407.5)
+        spin_dir=spin_dir(1407.5),
+        ellipse_factor = 1.206
     ),
     "Venus": dict(
         name="Venus",
@@ -115,7 +118,9 @@ SolarSystem = {
         orbit_radius=15.0,
         year_frames=max(60, int(EARTH_YEAR_FRAMES * 0.61519726 / 3)),
         day_frames=frames_for_day(-5832.5),
-        spin_dir=spin_dir(-5832.5)
+        spin_dir=spin_dir(-5832.5),
+        ellipse_factor = 1.0067
+        
     ),
     "Earth": dict(
         name="Earth",
@@ -127,7 +132,8 @@ SolarSystem = {
         orbit_radius=22.0,
         year_frames=int(EARTH_YEAR_FRAMES / 3),
         day_frames=frames_for_day(23.934),
-        spin_dir=spin_dir(23.934)
+        spin_dir=spin_dir(23.934),
+        ellipse_factor = 1.0167
     ),
     "Mars": dict(
         name="Mars",
@@ -139,7 +145,8 @@ SolarSystem = {
         orbit_radius=30.0,
         year_frames=max(60, int(EARTH_YEAR_FRAMES * 1.8808158 / 3)),
         day_frames=frames_for_day(24.623),
-        spin_dir=spin_dir(24.623)
+        spin_dir=spin_dir(24.623),
+        ellipse_factor = 1.0934
     ),
     "Jupiter": dict(
         name="Jupiter",
@@ -151,7 +158,8 @@ SolarSystem = {
         orbit_radius=45.0,
         year_frames=max(60, int(EARTH_YEAR_FRAMES * 11.862 / 3)),
         day_frames=frames_for_day(9.925),
-        spin_dir=spin_dir(9.925)
+        spin_dir=spin_dir(9.925),
+        ellipse_factor = 1.048
     ),
     "Saturn": dict(
         name="Saturn",
@@ -165,8 +173,9 @@ SolarSystem = {
         day_frames=frames_for_day(10.656),
         spin_dir=spin_dir(10.656),
         with_rings=True,
-        rings_inner=2.2,
-        rings_outer=3.8
+        rings_inner=2.0,
+        rings_outer=3.3,
+        ellipse_factor = 1.054
     ),
     "Uranus": dict(
         name="Uranus",
@@ -178,7 +187,8 @@ SolarSystem = {
         orbit_radius=75.0,
         year_frames=max(60, int(EARTH_YEAR_FRAMES * 84.016846 / 3)),
         day_frames=frames_for_day(-17.24),
-        spin_dir=spin_dir(-17.24)
+        spin_dir=spin_dir(-17.24),
+        ellipse_factor = 1.0457
     ),
     "Neptune": dict(
         name="Neptune",
@@ -190,7 +200,8 @@ SolarSystem = {
         orbit_radius=90.0,
         year_frames=max(60, int(EARTH_YEAR_FRAMES * 164.8 / 3)),
         day_frames=frames_for_day(16.11),
-        spin_dir=spin_dir(16.11)
+        spin_dir=spin_dir(16.11),
+        ellipse_factor = 1.0086
     )
 }
 
@@ -205,12 +216,23 @@ ORBIT_SCALE  = 1e-9
 # =========================
 # CREATE PLANETS
 # =========================
+
+
+bundles = {}
+
 for name, obj in SolarSystem.items():
     if name == "Sun":
         add_sun(obj)
     else:
         print(f"add obj: {name}")
-        add_planet(obj)
+        bundles[name] = add_planet(obj)
+        
+    
+ 
 
 bpy.context.scene.frame_set(1)
+
+bpy.context.scene.render.fps = 60
+
 bpy.context.view_layer.update()
+
