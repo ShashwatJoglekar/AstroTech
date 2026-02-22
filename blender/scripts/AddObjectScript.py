@@ -1,66 +1,71 @@
 import bpy
 import os
+import bmesh
+import math
 
-def create_uv_sphere(location,
-                     radius,
-                     segments=32,
-                     rings=16,
-                     name="MySphere",
-                     color=(1, 1, 1, 1),
-                     texture_path=None):
-    """
-    Creates a UV sphere in Blender.
 
-    Args:
-        location (tuple): The (x, y, z) coordinates for the sphere's center.
-        radius (float): The radius of the sphere.
-        segments (int): The number of segments (vertical divisions) of the sphere.
-        rings (int): The number of rings (horizontal divisions) of the sphere.
-        name (str): The name to assign to the new sphere object and its mesh.
-    """
-    bpy.ops.mesh.primitive_uv_sphere_add(
-        segments=segments,
-        ring_count=rings,
-        radius=radius,
-        location=location
+
+def add_uv_sphere(name, 
+                location, 
+                radius, 
+                u_segments=64, 
+                v_segments=32):
+                    
+    mesh = bpy.data.meshes.new(name + "_Mesh")
+    obj = bpy.data.objects.new(name, mesh);
+    bpy.context.collection.objects.link(obj)
+    obj.location = location
+    
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=u_segments, v_segments=v_segments, radius=radius)
+    
+    uv_layer = bm.loops.layers.uv.new("UVMap")
+    
+    for face in bm.faces:
+        for loop in face.loops:
+            
+            co = loop.vert.co
+            mag = co.length
+            
+            if mag > 0:
+                x, y, z = co / mag
+                u = 0.5 + (math.atan2(y, x) / (2 * math.pi))
+                v = 0.5 + (math.asin(z) / math.pi)
+                loop[uv_layer].uv = (u, v)
+            
+            
+    bm.to_mesh(mesh)
+    bm.free()
+    
+    mesh.update()
+    
+
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    
+
+    bpy.ops.mesh.select_all(action='SELECT')
+    
+    
+    bpy.ops.uv.sphere_project(
+        direction='ALIGN_TO_OBJECT', 
+        align='POLAR_ZX', 
+        correct_aspect=True, 
+        clip_to_bounds=True, 
+        scale_to_bounds=True
     )
+
+    bpy.ops.object.mode_set(mode='OBJECT')
     
-    # rename the new sphere and its mesh
-    new_sphere = bpy.context.selected_objects[0]
-    new_sphere.name = name
-    new_sphere.data.name = name + "_Mesh"
+    for poly in mesh.polygons:
+        poly.use_smooth = True
+        
+    if not mesh.uv_layers:
+        print(f"FAILED to create UV layers for {name}")
+    else:
+        mesh.uv_layers.active = mesh.uv_layers["UVMap"]
+        mesh.uv_layers["UVMap"].active_render = True
+
+    return obj
     
-    # add material
-    mat = bpy.data.materials.new(name + "_Material")
-    mat.use_nodes = True
-    bsdf = mat.node_tree.nodes.get("Principled BSDF")
-    
-    if texture_path and os.path.exists(texture_path):
-        img = bpy.data.images.load(texture_path) # load image
 
-        tex_image = mat.node_tree.nodes.new("ShaderNodeTexImage") # create texture node
-        tex_image.image = img
-
-        mat.node_tree.links.new(tex_image.outputs["Color"], bsdf.inputs["Base Color"])
-    else: # solid color
-        if bsdf:
-            bsdf.inputs[0].default_value = color
-
-    new_sphere.data.materials.clear()
-    new_sphere.data.materials.append(mat)
-
-
-def clear_scene():
-    """
-    Deletes all objects from the current Blender scene.
-    """
-    bpy.ops.object.select_all(action='SELECT') # select all objects
-    bpy.ops.object.delete(use_global=False) # delete selected objects
-
-    # clear unused data blocks (meshes, materials)
-    for block in bpy.data.meshes:
-        if block.users == 0:
-            bpy.data.meshes.remove(block)
-    for block in bpy.data.materials:
-        if block.users == 0:
-            bpy.data.materials.remove(block)

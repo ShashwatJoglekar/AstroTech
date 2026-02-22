@@ -1,6 +1,12 @@
 import bpy
 import os
 import math
+from bpy_extras import anim_utils
+import importlib
+import AddObjectScript
+
+importlib.reload(AddObjectScript)
+from AddObjectScript import add_uv_sphere
 
 # =========================
 # GLOBAL SETTINGS
@@ -63,10 +69,15 @@ def make_planet_material(name, color=(0.8,0.8,0.8,1.0), texture_path=None, rough
     nt = mat.node_tree
     nt.nodes.clear()
 
-    out = nt.nodes.new("ShaderNodeOutputMaterial"); out.location = (400,0)
-    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled"); bsdf.location = (100,0)
+    out = nt.nodes.new("ShaderNodeOutputMaterial"); 
+    out.location = (400,0)
+    
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled"); 
+    bsdf.location = (100,0)
+    
     bsdf.inputs["Base Color"].default_value = color
     bsdf.inputs["Roughness"].default_value  = roughness
+    
     for key in ("Specular", "Specular IOR Level"):
         if key in bsdf.inputs:
             bsdf.inputs[key].default_value = specular
@@ -76,20 +87,15 @@ def make_planet_material(name, color=(0.8,0.8,0.8,1.0), texture_path=None, rough
     if texture_path:
         try:
             img = bpy.data.images.load(texture_path)
-            tex = nt.nodes.new("ShaderNodeTexImage"); tex.location = (-250, 0)
-            tex.image = img; tex.interpolation = 'Smart'
+            
+            tex = nt.nodes.new("ShaderNodeTexImage") 
+            tex.location = (-250, 0)
+            tex.image = img 
+            tex.interpolation = 'Smart'
 
-            tcoord = nt.nodes.new("ShaderNodeTexCoord"); tcoord.location = (-650, 0)
-            mapping = nt.nodes.new("ShaderNodeMapping"); mapping.location = (-450, 0)
-
-            # Link texture mapping
-            nt.links.new(tcoord.outputs["Generated"], mapping.inputs["Vector"])
-            nt.links.new(mapping.outputs["Vector"], tex.inputs["Vector"])
+            
             nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
 
-            # Rotate texture -90° around Z
-            import math
-            mapping.inputs['Rotation'].default_value[2] = math.radians(-90)
 
         except:
             print(f"[WARN] Could not load texture: {texture_path}")
@@ -107,30 +113,96 @@ def make_emissive_sun_material(strength=8.0, tint=(1.0, 0.9, 0.6, 1.0)):
     nt.links.new(emi.outputs["Emission"], out.inputs["Surface"])
     return mat
 
-def make_ring_material(name, alpha=RING_ALPHA):
-    mat = bpy.data.materials.get(f"Rings-{name}") or bpy.data.materials.new(f"Rings-{name}")
+def make_transparent_sun_material(texture_path=None, strength=5.0, tint=(1.0, 0.9, 0.6, 1.0)):
+    mat = bpy.data.materials.get("Material-Sun") or bpy.data.materials.new("Material-Sun")
     mat.use_nodes = True
-    nt = mat.node_tree; nt.nodes.clear()
-    out = nt.nodes.new("ShaderNodeOutputMaterial"); out.location = (300,0)
-    mix = nt.nodes.new("ShaderNodeMixShader"); mix.location = (100,0)
-    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled"); bsdf.location = (-150,80)
-    tr   = nt.nodes.new("ShaderNodeBsdfTransparent"); tr.location = (-150,-120)
-    fac  = nt.nodes.new("ShaderNodeValue"); fac.location = (-350, -20); fac.outputs[0].default_value = 1.0 - alpha
-    bsdf.inputs["Roughness"].default_value = 0.25
-    nt.links.new(fac.outputs[0], mix.inputs[0])
-    nt.links.new(tr.outputs["BSDF"], mix.inputs[1])
-    nt.links.new(bsdf.outputs["BSDF"], mix.inputs[2])
-    nt.links.new(mix.outputs["Shader"], out.inputs["Surface"])
+    # 'HASHED' or 'BLEND' works, but HASHED often looks less "glassy" in EEVEE
+    mat.blend_method = 'HASHED' 
+    
+    nt = mat.node_tree
+    nt.nodes.clear()
+
+    # Create Nodes
+    node_out  = nt.nodes.new("ShaderNodeOutputMaterial")
+    node_mix  = nt.nodes.new("ShaderNodeMixShader")
+    node_emi  = nt.nodes.new("ShaderNodeEmission")
+    node_tran = nt.nodes.new("ShaderNodeBsdfTransparent")
+    node_fres = nt.nodes.new("ShaderNodeLayerWeight")
+    node_ramp = nt.nodes.new("ShaderNodeValToRGB") # THE FIX: Adds density control
+
+    node_ramp.color_ramp.elements[0].position = 0.2
+    node_ramp.color_ramp.elements[0].color = (0.4, 0.4, 0.4, 1.0)
+    
+    node_emi.inputs["Strength"].default_value = strength
+    node_fres.inputs["Blend"].default_value = 0.5 
+    
+    # Texture / Color
+    if texture_path and os.path.exists(texture_path):
+        try:
+            img = bpy.data.images.load(texture_path)
+            node_tex = nt.nodes.new("ShaderNodeTexImage")
+            node_tex.image = img
+            nt.links.new(node_tex.outputs["Color"], node_emi.inputs["Color"])
+        except:
+            node_emi.inputs["Color"].default_value = tint
+    else:
+        node_emi.inputs["Color"].default_value = tint
+
+    nt.links.new(node_fres.outputs["Facing"], node_ramp.inputs["Fac"])
+    nt.links.new(node_ramp.outputs["Color"], node_mix.inputs["Fac"])
+    
+    nt.links.new(node_tran.outputs["BSDF"], node_mix.inputs[1])
+    nt.links.new(node_emi.outputs["Emission"], node_mix.inputs[2])
+    nt.links.new(node_mix.outputs["Shader"], node_out.inputs["Surface"])
+
+    return mat
+
+#def make_ring_material(name, alpha=RING_ALPHA):
+#    mat = bpy.data.materials.get(f"Rings-{name}") or bpy.data.materials.new(f"Rings-{name}")
+#    mat.use_nodes = True
+#    nt = mat.node_tree; nt.nodes.clear()
+#    out = nt.nodes.new("ShaderNodeOutputMaterial"); out.location = (300,0)
+#    mix = nt.nodes.new("ShaderNodeMixShader"); mix.location = (100,0)
+#    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled"); bsdf.location = (-150,80)
+#    tr   = nt.nodes.new("ShaderNodeBsdfTransparent"); tr.location = (-150,-120)
+#    fac  = nt.nodes.new("ShaderNodeValue"); fac.location = (-350, -20); fac.outputs[0].default_value = 1.0 - alpha
+#    bsdf.inputs["Roughness"].default_value = 0.25
+#    nt.links.new(fac.outputs[0], mix.inputs[0])
+#    nt.links.new(tr.outputs["BSDF"], mix.inputs[1])
+#    nt.links.new(bsdf.outputs["BSDF"], mix.inputs[2])
+#    nt.links.new(mix.outputs["Shader"], out.inputs["Surface"])
+#    return mat
+
+def make_ring_material(name, alpha_val):
+    mat_name = f"Material-Rings-{name}"
+    mat = bpy.data.materials.get(mat_name) or bpy.data.materials.new(mat_name)
+    mat.use_nodes = True
+    
+    
+    if hasattr(mat, "transparent_method"):
+        mat.transparent_method = 'HASHED'
+
+    
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+
+    node_out = nodes.new("ShaderNodeOutputMaterial")
+    node_bsdf = nodes.new("ShaderNodeBsdfPrincipled")
+    
+    node_bsdf.inputs['Alpha'].default_value = alpha_val
+    node_bsdf.inputs['Roughness'].default_value = 0.5
+
+    links.new(node_bsdf.outputs["BSDF"], node_out.inputs["Surface"])
+    
     return mat
 
 # =========================
 # GEOMETRY
 # =========================
 def add_sphere(name, location=(0,0,0), radius=1.0):
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=64, ring_count=32, radius=radius, location=location)
-    obj = bpy.context.object; obj.name = name
-    bpy.ops.object.shade_smooth()
-    return obj
+ 
+    return add_uv_sphere(name, location, radius)
 
 def add_orbit_curve(name, radius=5.0, center=(0,0,0), ellipse_factor=1.0):
     """
@@ -176,8 +248,10 @@ def animate_spin(spin_ctrl, frames_per_rotation=120, start_frame=1, direction=1)
     sc.frame_set(start_frame + int(abs(frames_per_rotation)))
     spin_ctrl.rotation_euler[2] += direction * 2.0 * math.pi
     spin_ctrl.keyframe_insert(data_path="rotation_euler", index=2)
-    if spin_ctrl.animation_data and spin_ctrl.animation_data.action:
-        for fc in spin_ctrl.animation_data.action.fcurves:
+    if spin_ctrl.animation_data:
+        
+        channelbag = anim_utils.action_get_channelbag_for_slot(spin_ctrl.animation_data.action, spin_ctrl.animation_data.action_slot)
+        for fc in channelbag.fcurves:
             if fc.data_path == "rotation_euler" and fc.array_index == 2:
                 _linear_and_cycle(fc)
 
@@ -208,8 +282,10 @@ def animate_orbit_with_eval_time(path_obj, frames_per_revolution=EARTH_YEAR_FRAM
     sc.frame_set(start_frame + int(frames_per_revolution))
     cu.eval_time = float(frames_per_revolution)
     cu.keyframe_insert(data_path="eval_time")
-    if cu.animation_data and cu.animation_data.action:
-        for fc in cu.animation_data.action.fcurves:
+    if cu.animation_data:
+        
+        channelbag = anim_utils.action_get_channelbag_for_slot(cu.animation_data.action, cu.animation_data.action_slot)
+        for fc in channelbag.fcurves:
             if fc.data_path == "eval_time":
                 _linear_and_cycle(fc)
 
@@ -248,6 +324,10 @@ def add_planet(cfg):
     bpy.context.scene.collection.objects.link(spin_ctrl)
     link_to_collection(spin_ctrl)
     spin_ctrl.parent = orbit_ctrl
+    
+    # Apply Z spin first before tilting
+    spin_ctrl.rotation_mode = 'ZXY'
+    
     # Apply axial tilt on X so Z becomes the tilted axis
     spin_ctrl.rotation_euler = (math.radians(cfg.get("tilt_deg", 0.0)), 0.0, 0.0)
     animate_spin(spin_ctrl, frames_per_rotation=cfg["day_frames"], start_frame=1, direction=cfg.get("spin_dir", 1))
@@ -275,18 +355,44 @@ def add_planet(cfg):
     return dict(mesh=planet, spin=spin_ctrl, orbit=orbit_ctrl, curve=orbit_curve)
 
 def add_rings_for(parent_spin_ctrl, inner=1.2, outer=2.2, alpha=RING_ALPHA):
-    major = (inner + outer)/2.0
-    minor = (outer - inner)/10.0
-    bpy.ops.mesh.primitive_torus_add(major_radius=major, minor_radius=minor,
-                                     rotation=(math.radians(90),0,0),
-                                     location=(0,0,0))
-    ring = bpy.context.object
-    ring.name = f"Rings-{parent_spin_ctrl.name.replace('SpinCtrl-','')}"
-    ring.data.materials.clear()
-    ring.data.materials.append(make_ring_material(parent_spin_ctrl.name.replace('SpinCtrl-',''), alpha))
+    import bmesh
+    
+
+    name_clean = parent_spin_ctrl.name.replace('SpinCtrl-', '')
+    mesh = bpy.data.meshes.new(f"Mesh-Rings-{name_clean}")
+    ring = bpy.data.objects.new(f"Rings-{name_clean}", mesh)
+    
+    bpy.context.collection.objects.link(ring)
     ring.parent = parent_spin_ctrl
-    # align to equator (same tilt already on parent)
+    ring.location = (0, 0, 0)
     ring.rotation_euler = (0, 0, 0)
+
+    bm = bmesh.new()
+    
+
+    bmesh.ops.create_circle(bm, cap_ends=False, radius=inner, segments=128)
+    bmesh.ops.create_circle(bm, cap_ends=False, radius=outer, segments=128)
+    
+    
+    bm.edges.ensure_lookup_table()
+    bmesh.ops.bridge_loops(bm, edges=bm.edges)
+
+
+    uv_layer = bm.loops.layers.uv.new("UVMap")
+    for face in bm.faces:
+        for loop in face.loops:
+            vert_coords = loop.vert.co
+            
+            dist = vert_coords.length
+            u = (dist - inner) / (outer - inner)
+            loop[uv_layer].uv = (u, 0.5)
+
+    bm.to_mesh(mesh)
+    bm.free()
+
+    ring.data.materials.clear()
+    ring.data.materials.append(make_ring_material(name_clean, alpha))
+    
     return ring
 
 def add_sun(cfg, strength=8.0):
@@ -301,148 +407,166 @@ def add_sun(cfg, strength=8.0):
         sun.rotation_euler[0] = math.radians(tilt)
 
     # Create emissive material
-    mat = make_emissive_sun_material(strength=strength)
-
-    # Add texture
-    if "texture" in cfg and cfg["texture"]:
-        try:
-            img = bpy.data.images.load(cfg["texture"])
-            tex_node = mat.node_tree.nodes.new("ShaderNodeTexImage")
-            tex_node.image = img
-            bsdf = mat.node_tree.nodes.get("Emission")
-            if bsdf:
-                mat.node_tree.links.new(tex_node.outputs["Color"], bsdf.inputs["Color"])
-        except:
-            print(f"[WARN] Could not load Sun texture: {cfg['texture']}")
-
+    mat = make_transparent_sun_material(
+        texture_path = cfg.get("texture"),
+        strength = strength,
+        tint = cfg.get("color", (1.0, 0.9, 0.6, 1.0))
+    )
+    
     sun.data.materials.clear()
     sun.data.materials.append(mat)
     link_to_collection(sun)
-
-    # Optional directional light
-    if not any(hasattr(o, "data") and isinstance(o.data, bpy.types.Light) for o in bpy.data.objects):
-        bpy.ops.object.light_add(type='SUN', location=(0, 0, 50))
-        bpy.context.object.data.energy = 3.0
+    
+    
+    light_data = bpy.data.lights.new(name="SunInnerLight", type='POINT')
+    light_data.energy = strength * 10000.0  
+    light_data.color = cfg.get("color", (1.0, 0.9, 0.6))[:3]
+    
+    light_data.use_shadow = False
+    
+    
+    light_obj = bpy.data.objects.new(name="SunInnerLight", object_data=light_data)
+    light_obj.location = cfg.get("location", (0, 0, 0))
+    bpy.context.scene.collection.objects.link(light_obj)
+    link_to_collection(light_obj)
+    
 
     return sun
 
-def add_moon(earth_bundle, name="Moon", radius=0.27, orbit_radius=1.8, day_frames=120, year_frames=300):
-    """Moon orbits Earth: parent its orbit curve to Earth's ORBIT CTRL."""
-    earth_orbit_ctrl = earth_bundle["orbit"]
-    # orbit curve
-    curve = add_orbit_curve(f"Orbit-{name}", radius=orbit_radius, center=(0,0,0))
-    curve.parent = earth_orbit_ctrl
-    curve.matrix_parent_inverse.identity()
-    link_to_collection(curve)
+def add_moon(
+    earth_bundle, 
+    name="Moon", 
+    radius=0.27, 
+    orbit_radius=1.8, 
+    day_frames=120, 
+    year_frames=300, 
+    texture_path=None
+):
+    # 1. Get Earth's Orbit Controller (The empty moving around the Sun)
+    earth_ctrl = earth_bundle["orbit"]
 
-    # orbit controller (empty) for the moon
-    orbit_ctrl = bpy.data.objects.new(f"OrbitCtrl-{name}", None)
-    orbit_ctrl.empty_display_type = 'PLAIN_AXES'
-    bpy.context.scene.collection.objects.link(orbit_ctrl)
-    orbit_ctrl.parent = earth_orbit_ctrl
-    link_to_collection(orbit_ctrl)
-    ensure_follow_path(orbit_ctrl, curve)
-    animate_orbit_with_eval_time(curve, frames_per_revolution=year_frames, start_frame=1)
+    # 2. CREATE MOON ORBIT CURVE
+    # We parent this to Earth's controller so the "center" of the circle is Earth.
+    moon_curve = add_orbit_curve(f"Orbit-{name}", radius=orbit_radius, center=(0,0,0))
+    moon_curve.parent = earth_ctrl
+    moon_curve.matrix_parent_inverse.identity()
+    moon_curve.location = (0, 0, 0) # Snap curve center to Earth center
 
-    # spin controller for the moon
-    spin_ctrl = bpy.data.objects.new(f"SpinCtrl-{name}", None)
-    spin_ctrl.empty_display_type = 'SPHERE'
-    bpy.context.scene.collection.objects.link(spin_ctrl)
-    spin_ctrl.parent = orbit_ctrl
-    link_to_collection(spin_ctrl)
-    animate_spin(spin_ctrl, frames_per_rotation=day_frames, start_frame=1, direction=1)
+    # 3. CREATE MOON ORBIT CONTROLLER (The Empty that moves on the curve)
+    # This is the "middle man" that handles the revolution around Earth.
+    moon_orbit_ctrl = bpy.data.objects.new(f"OrbitCtrl-{name}", None)
+    moon_orbit_ctrl.empty_display_type = 'PLAIN_AXES'
+    bpy.context.scene.collection.objects.link(moon_orbit_ctrl)
+    
+    # Parent the controller to the Earth controller
+    moon_orbit_ctrl.parent = earth_ctrl
+    moon_orbit_ctrl.matrix_parent_inverse.identity()
+    moon_orbit_ctrl.location = (0, 0, 0) # Snap to Earth center
 
-    # moon mesh
-    moon = add_sphere(f"Moon-{name}", location=(0,0,0), radius=radius)
-    moon.parent = spin_ctrl
-    link_to_collection(moon)
-    mat = make_planet_material(name, color=(0.7,0.7,0.7,1.0), texture_path=None, roughness=0.9, specular=0.1)
-    moon.data.materials.clear(); moon.data.materials.append(mat)
-    print(f"Moon '{name}' added.")
-    return dict(mesh=moon, spin=spin_ctrl, orbit=orbit_ctrl, curve=curve)
+    # 4. ATTACH & ANIMATE USING YOUR FUNCTIONS
+    # This empty now follows the Moon's local circle around Earth
+    ensure_follow_path(moon_orbit_ctrl, moon_curve)
+    animate_orbit_with_eval_time(moon_curve, frames_per_revolution=year_frames)
 
-# =========================
-# DATA (temporary)
-# =========================
-Y = {  # orbital periods in Earth years
-    "Mercury": 0.2408467, "Venus": 0.61519726, "Earth": 1.0, "Mars": 1.8808158,
-    "Jupiter": 11.862615, "Saturn": 29.447498, "Uranus": 84.016846, "Neptune": 164.79132
-}
-TILT = {  # axial tilts (deg)
-    "Mercury": 0.03, "Venus": 177.4, "Earth": 23.44, "Mars": 25.19,
-    "Jupiter": 3.13, "Saturn": 26.73, "Uranus": 97.77, "Neptune": 28.32
-}
-ROT_H = {  # sidereal rotation hours; negative = retrograde (Venus, Uranus)
-    "Mercury": 1407.5, "Venus": -5832.5, "Earth": 23.934, "Mars": 24.623,
-    "Jupiter": 9.925,  "Saturn": 10.656,  "Uranus": -17.24,  "Neptune": 16.11
-}
-FLAT = {  # flattening (approx)
-    "Mercury": 0.00006, "Venus": 0.0001, "Earth": 1/298.257, "Mars": 0.00589,
-    "Jupiter": 0.06487, "Saturn": 0.09796, "Uranus": 0.0229,  "Neptune": 0.0171
-}
-R = {  # display radii (artistic scale; Earth=1)
-    "Mercury": 0.30, "Venus": 0.95, "Earth": 1.00, "Mars": 0.53,
-    "Jupiter": 2.80, "Saturn": 2.40, "Uranus": 1.80, "Neptune": 1.70
-}
-A = {  # orbit radii (scene units)
-    "Mercury": 4.0, "Venus": 6.0, "Earth": 8.0, "Mars": 10.0,
-    "Jupiter": 14.0, "Saturn": 18.0, "Uranus": 22.0, "Neptune": 26.0
-}
+    # 5. CREATE MOON MESH
+    # Parent the mesh to the Moon's controller, NOT the Earth's.
+    moon_mesh = add_sphere(f"Moon-{name}", location=(0,0,0), radius=radius)
+    moon_mesh.parent = moon_orbit_ctrl
+    moon_mesh.matrix_parent_inverse.identity()
+    moon_mesh.location = (0,0,0) # Must be (0,0,0) to stay on the path
 
-def frames_for_day(hours):   # map real hours to frames
-    return max(10, int(EARTH_DAY_FRAMES * (abs(hours)/24.0)))
-def spin_dir(hours):         # retrograde sign
-    return -1 if hours < 0 else 1
+    # 6. SPIN & MATERIAL
+    # We can create a spin controller if needed, but for simplicity, we spin the mesh
+    animate_spin(moon_mesh, frames_per_rotation=day_frames)
+    
+    mat = make_planet_material(name, color=(0.7, 0.7, 0.7, 1.0), texture_path=texture_path)
+    moon_mesh.data.materials.append(mat)
 
-# =========================
-# MAIN
-# =========================
-if __name__ == "__main__":
-    # scene
-    bpy.context.scene.render.fps = FPS
-    bpy.context.scene.frame_start = 1
-    bpy.context.scene.frame_end   = 4000
+    return {"mesh": moon_mesh, "orbit": moon_orbit_ctrl}
 
-    # cleanup
-    delete_grouped()
-    delete_unused_materials()
-    delete_unused_images()
+## =========================
+## DATA (temporary)
+## =========================
+#Y = {  # orbital periods in Earth years
+#    "Mercury": 0.2408467, "Venus": 0.61519726, "Earth": 1.0, "Mars": 1.8808158,
+#    "Jupiter": 11.862615, "Saturn": 29.447498, "Uranus": 84.016846, "Neptune": 164.79132
+#}
+#TILT = {  # axial tilts (deg)
+#    "Mercury": 0.03, "Venus": 177.4, "Earth": 23.44, "Mars": 25.19,
+#    "Jupiter": 3.13, "Saturn": 26.73, "Uranus": 97.77, "Neptune": 28.32
+#}
+#ROT_H = {  # sidereal rotation hours; negative = retrograde (Venus, Uranus)
+#    "Mercury": 1407.5, "Venus": -5832.5, "Earth": 23.934, "Mars": 24.623,
+#    "Jupiter": 9.925,  "Saturn": 10.656,  "Uranus": -17.24,  "Neptune": 16.11
+#}
+#FLAT = {  # flattening (approx)
+#    "Mercury": 0.00006, "Venus": 0.0001, "Earth": 1/298.257, "Mars": 0.00589,
+#    "Jupiter": 0.06487, "Saturn": 0.09796, "Uranus": 0.0229,  "Neptune": 0.0171
+#}
+#R = {  # display radii (artistic scale; Earth=1)
+#    "Mercury": 0.30, "Venus": 0.95, "Earth": 1.00, "Mars": 0.53,
+#    "Jupiter": 2.80, "Saturn": 2.40, "Uranus": 1.80, "Neptune": 1.70
+#}
+#A = {  # orbit radii (scene units)
+#    "Mercury": 8.0, "Venus": 12.0, "Earth": 16.0, "Mars": 20.0,
+#    "Jupiter": 28.0, "Saturn": 36.0, "Uranus": 44.0, "Neptune": 52.0
+#}
 
-    # Sun
-    add_sun(radius=3.0, strength=8.0)
+#def frames_for_day(hours):   # map real hours to frames
+#    return max(10, int(EARTH_DAY_FRAMES * (abs(hours)/24.0)))
+#def spin_dir(hours):         # retrograde sign
+#    return -1 if hours < 0 else 1
 
-    # Planets
-    bundles = {}
-    order = ["Mercury","Venus","Earth","Mars","Jupiter","Saturn","Uranus","Neptune"]
+## =========================
+## MAIN
+## =========================
+#if __name__ == "__main__":
+#    # scene
+#    bpy.context.scene.render.fps = FPS
+#    bpy.context.scene.frame_start = 1
+#    bpy.context.scene.frame_end   = 4000
 
-    for name in order:
-        cfg = dict(
-            name=name,
-            radius=R[name],
-            color=(1, 1, 1, 1),
-            texture=os.path.join(
-                TEX_DIR, f"{name.lower()}.jpg"
-            ) if os.path.exists(os.path.join(TEX_DIR, f"{name.lower()}.jpg")) else None,
-            tilt_deg=TILT[name],
-            flattening=FLAT[name],
-            orbit_radius=A[name] * SYSTEM_SCALE,
-            year_frames=max(60, int(EARTH_YEAR_FRAMES * Y[name])),
-            day_frames=frames_for_day(ROT_H[name]),
-            spin_dir=spin_dir(ROT_H[name]),
-            with_rings=(name == "Saturn"),
-            rings_inner=1.2,
-            rings_outer=2.2,
-            # elliptical orbits: >1.0 = stretched along X
-            ellipse_factor=1.2
-        )
-        bundles[name] = add_planet(cfg)
+#    # cleanup
+#    delete_grouped()
+#    delete_unused_materials()
+#    delete_unused_images()
 
-    # Moons
-    if "Earth" in bundles:
-        add_moon(bundles["Earth"], name="Moon",
-                 radius=0.27, orbit_radius=1.8,
-                 day_frames=frames_for_day(655.7 / 24.0),
-                 year_frames=int(EARTH_YEAR_FRAMES * 0.0748))
 
-    bpy.context.scene.frame_set(1)
-    bpy.context.view_layer.update()
+#    # Planets
+#    bundles = {}
+#    order = ["Mercury","Venus","Earth","Mars","Jupiter","Saturn","Uranus","Neptune"]
+
+#    for name in order:
+#        cfg = dict(
+#            name=name,
+#            radius=R[name],
+#            color=(1, 1, 1, 1),
+#            texture=os.path.join(
+#                TEX_DIR, f"{name.lower()}.jpg"
+#            ) if os.path.exists(os.path.join(TEX_DIR, f"{name.lower()}.jpg")) else None,
+#            tilt_deg=TILT[name],
+#            flattening=FLAT[name],
+#            orbit_radius=A[name] * SYSTEM_SCALE,
+#            year_frames=max(60, int(EARTH_YEAR_FRAMES * Y[name])),
+#            day_frames=frames_for_day(ROT_H[name]),
+#            spin_dir=spin_dir(ROT_H[name]),
+#            with_rings=(name == "Saturn"),
+#            rings_inner=1.2,
+#            rings_outer=2.2,
+#            # elliptical orbits: >1.0 = stretched along X
+#            ellipse_factor=1.2
+#        )
+#        bundles[name] = add_planet(cfg)
+
+#    # Moons
+#    if "Earth" in bundles:
+#        add_moon(bundles["Earth"], name="Moon",
+#                 radius=0.27, orbit_radius=1.8,
+#                 day_frames=frames_for_day(655.7 / 24.0),
+#                 year_frames=int(EARTH_YEAR_FRAMES * 0.0748))
+#                 
+#    # Sun
+#    add_sun(cfg, strength=8.0)
+
+#    bpy.context.scene.frame_set(1)
+#    bpy.context.view_layer.update()
