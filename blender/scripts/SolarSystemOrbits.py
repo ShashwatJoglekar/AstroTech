@@ -318,6 +318,55 @@ def animate_orbit_with_eval_time(path_obj, frames_per_revolution=EARTH_YEAR_FRAM
 # =========================
 # BUILDERS (with hierarchy)
 # =========================
+def import_obj_as_planet(name, obj_path, target_radius):
+    """Import an OBJ file, scale it to target_radius, and return the Blender object."""
+    bpy.ops.object.select_all(action='DESELECT')
+
+    bpy.ops.wm.obj_import(filepath=obj_path)
+
+    imported = list(bpy.context.selected_objects)
+    if not imported:
+        print(f"[WARN] OBJ import returned no objects for {obj_path}, falling back to UV sphere")
+        return add_uv_sphere(name, (0, 0, 0), target_radius)
+
+    # Join multiple meshes into one if needed
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in imported:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = imported[0]
+    if len(imported) > 1:
+        bpy.ops.object.join()
+
+    obj = bpy.context.active_object
+    obj.name = name
+    obj.location = (0, 0, 0)
+
+    # Scale to match target_radius based on bounding box
+    dims = obj.dimensions
+    max_dim = max(dims.x, dims.y, dims.z)
+    if max_dim > 0:
+        scale_factor = (target_radius * 2) / max_dim
+        obj.scale = (scale_factor, scale_factor, scale_factor)
+        bpy.ops.object.transform_apply(scale=True)
+
+    # Ensure a UV map exists and is active for texture rendering
+    bpy.context.view_layer.objects.active = obj
+    if obj.data.uv_layers:
+        uv = obj.data.uv_layers[0]
+        obj.data.uv_layers.active = uv
+        uv.active_render = True
+    else:
+        # No UV map from OBJ — generate one via Smart UV Project
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.uv.smart_project(angle_limit=66.0, island_margin=0.02)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        if obj.data.uv_layers:
+            obj.data.uv_layers[0].active_render = True
+
+    return obj
+
+
 def add_planet(cfg):
     """
     Hierarchy:
@@ -363,7 +412,11 @@ def add_planet(cfg):
     animate_spin(spin_ctrl, frames_per_rotation=cfg["day_frames"], start_frame=1, direction=cfg.get("spin_dir", 1))
 
     # Planet mesh
-    planet = add_sphere(f"Planet-{name}", location=(0,0,0), radius=cfg["radius"])
+    model_path = cfg.get("model_path")
+    if model_path:
+        planet = import_obj_as_planet(f"Planet-{name}", model_path, cfg["radius"])
+    else:
+        planet = add_sphere(f"Planet-{name}", location=(0,0,0), radius=cfg["radius"])
     planet.parent = spin_ctrl
     link_to_collection(planet)
 
