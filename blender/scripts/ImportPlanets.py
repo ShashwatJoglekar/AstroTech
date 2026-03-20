@@ -4,6 +4,7 @@ import os
 import importlib
 import math
 import csv
+import random
 
 # Import other scripts
 blend_dir = os.path.dirname(bpy.data.filepath)
@@ -49,6 +50,7 @@ NUM_GAIA_OBJECTS = 10  # Change this value to load more/fewer objects
 
 BASE_DIR = bpy.path.abspath("//")
 TEX_DIR = os.path.join(BASE_DIR, "assets", "textures")
+MODELS_DIR = os.path.join(BASE_DIR, "assets", "models")
 
 # Try multiple locations for the CSV file
 csv_locations = [
@@ -143,11 +145,19 @@ def load_gaia_objects(csv_path, num_objects=100):
     print(f"Loading {num_objects} Gaia objects from CSV...")
     
     gaia_objects = {}
-    
+
+    model_files = [
+        os.path.join(MODELS_DIR, f)
+        for f in os.listdir(MODELS_DIR)
+        if f.lower().endswith('.obj')
+    ] if os.path.isdir(MODELS_DIR) else []
+    if not model_files:
+        print(f"[GAIA] WARNING: No .obj models found in {MODELS_DIR}")
+
     try:
         with open(csv_path, 'r', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile)
-            
+
             for idx, row in enumerate(reader):
                 if idx >= num_objects:
                     break
@@ -183,7 +193,8 @@ def load_gaia_objects(csv_path, num_objects=100):
                     name=name,
                     radius=obj_radius,
                     color=(0.7, 0.7, 0.7, 1),  # Gray color for asteroids
-                    texture=None,
+                    texture=os.path.join(TEX_DIR, "Generic_Celestia_asteroid_texture.jpg"),
+                    model_path=random.choice(model_files) if model_files else None,
                     tilt_deg=0.0,  # Default tilt
                     flattening=0.0,  # Spherical
                     year_frames=year_frames,
