@@ -42,22 +42,21 @@ def clear_scene():
 FPS = 60
 # EARTH_DAY_FRAMES  = 180 # 1 Earth day = 120 frames (3s @ 60fps)
 # EARTH_YEAR_FRAMES = 1800 # 1 Earth year = 1200 frames (30s @ 60fps)
-SYSTEM_SCALE = 1.0
+SYSTEM_SCALE = 1
 RING_ALPHA   = 0.55
 
 # Control how many Gaia objects to load (set to 0 to skip, or up to 30000)
-NUM_GAIA_OBJECTS = 100  # Change this value to load more/fewer objects
+NUM_GAIA_OBJECTS = 500  # Change this value to load more/fewer objects
 
 BASE_DIR = bpy.path.abspath("//")
 TEX_DIR = os.path.join(BASE_DIR, "assets", "textures")
-MODELS_DIR = os.path.join(BASE_DIR, "assets", "models")
 
 # Try multiple locations for the CSV file
 # fix
 csv_locations = [
-    os.path.join(scripts_dir, "gaia_solar_system_xyz_30kobjects.csv"),  # scripts directory
-    os.path.join(BASE_DIR, "gaia_solar_system_xyz_30kobjects.csv"),     # blender directory  
-    os.path.join(os.path.dirname(BASE_DIR), "gaia_solar_system_xyz_30kobjects.csv"),  # project root
+    os.path.join(scripts_dir, "gaia_stars_10k.csv"),  # scripts directory
+    os.path.join(BASE_DIR, "gaia_stars_10k.csv"),     # blender directory  
+    os.path.join(os.path.dirname(BASE_DIR), "gaia_stars_10k.csv"),  # project root
 ]
 
 GAIA_CSV = None
@@ -118,6 +117,17 @@ class AstroObject:
 RADIUS_SCALE = 1e-6
 ORBIT_SCALE  = 20
 
+def get_star_color(bp_rp_str):
+    """Maps the BP-RP color index to a rough RGBA tuple."""
+    try:
+        val = float(bp_rp_str)
+        if val < 0.0: return (0.7, 0.8, 1.0, 1.0)    # Blueish
+        elif val < 0.5: return (0.9, 0.9, 1.0, 1.0)  # White-Blue
+        elif val < 1.0: return (1.0, 0.95, 0.8, 1.0) # Yellow (Sun-like)
+        elif val < 2.0: return (1.0, 0.7, 0.4, 1.0)  # Orange
+        else: return (1.0, 0.4, 0.4, 1.0)            # Red
+    except (ValueError, TypeError):
+        return (1.0, 1.0, 1.0, 1.0) # Default White
 
 # =========================
 # GAIA DATA LOADER
@@ -145,14 +155,6 @@ def load_gaia_objects(csv_path, num_objects=100):
     
     gaia_objects = {}
 
-    model_files = [
-        os.path.join(MODELS_DIR, f)
-        for f in os.listdir(MODELS_DIR)
-        if f.lower().endswith('.obj')
-    ] if os.path.isdir(MODELS_DIR) else []
-    if not model_files:
-        print(f"[GAIA] WARNING: No .obj models found in {MODELS_DIR}")
-
     try:
         with open(csv_path, 'r', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile)
@@ -161,49 +163,39 @@ def load_gaia_objects(csv_path, num_objects=100):
                 if idx >= num_objects:
                     break
                 
-                name = row['denomination']
+                #1
+                name = row['source_id']  
+
+                #2
+                dist = 0.0
+                if row.get('distance_pc'):
+                    dist = float(row['distance_pc'])
+                elif row.get('parallax') and float(row['parallax']) > 0:
+                    # distance in pc = 1000 / parallax in mas
+                    dist = 1000.0 / float(row['parallax'])              
                 
-                # Parse numeric values from CSV
-                x_au = float(row['X_AU'])
-                y_au = float(row['Y_AU'])
-                z_au = float(row['Z_AU'])
+                if dist <= 0:
+                    continue
+
+                ra_rad = math.radians(float(row['ra']))
+                dec_rad = math.radians(float(row['dec']))
                 
-                # Use semi_major_axis if available, otherwise use distance
-                orbit_radius_au = float(row.get('semi_major_axis_AU', row['distance_AU']))
+                x = dist * math.cos(dec_rad) * math.cos(ra_rad)
+                y = dist * math.cos(dec_rad) * math.sin(ra_rad)
+                z = dist * math.sin(dec_rad)
                 
-                # Scale orbit radius to scene units (similar to planets)
-                orbit_radius = ORBIT_SCALE * orbit_radius_au
-                
-                # Small radius for asteroids/minor objects (much smaller than planets)
-                obj_radius = 0.05  # Small visual size for asteroids
-                
-                # Get orbital elements
-                eccentricity = float(row.get('eccentricity', 0.0))
-                inclination = float(row.get('inclination_deg', 0.0))
-                mean_anomaly = float(row.get('mean_anomaly', 0.0))
-                
-                # Estimate orbital period using Kepler's third law (T² ∝ a³)
-                # Period in Earth years = a^1.5 (where a is in AU)
-                period_years = orbit_radius_au ** 1.5
-                year_frames = max(60, int(EARTH_YEAR_FRAMES * period_years / 3))
-                
+                location = (round(x, 4), round(y, 4), round(z, 4))
+
+                color = get_star_color(row.get('bp_rp'))
+
                 # Create object configuration
                 gaia_objects[name] = dict(
                     name=name,
-                    radius=obj_radius,
-                    color=(0.7, 0.7, 0.7, 1),  # Gray color for asteroids
-                    texture=os.path.join(TEX_DIR, "Generic_Celestia_asteroid_texture.jpg"),
-                    model_path=random.choice(model_files) if model_files else None,
-                    tilt_deg=0.0,  # Default tilt
-                    flattening=0.0,  # Spherical
-                    year_frames=year_frames,
-                    day_frames=frames_for_day(10.0),  # Arbitrary rotation
-                    spin_dir=1,
-                    orbit_radius=orbit_radius,
-                    ecc=eccentricity,
-                    inc=inclination,
-                    asc=0.0,  # Longitude of ascending node (not in CSV, default to 0)
-                    peri=mean_anomaly,  # Use mean anomaly as argument of periapsis approximation
+                    radius=1.0,
+                    location=location,
+                    tilt_deg=0.0,
+                    texture=os.path.join(TEX_DIR, "8k_sun.jpg"),
+                    color=color
                 )
         
         print(f"Successfully loaded {len(gaia_objects)} Gaia objects")
