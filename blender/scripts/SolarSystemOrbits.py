@@ -102,76 +102,68 @@ def make_planet_material(name, color=(0.8,0.8,0.8,1.0), texture_path=None, rough
 
     return mat
 
-def make_emissive_sun_material(strength=8.0, tint=(1.0, 0.9, 0.6, 1.0)):
-    mat = bpy.data.materials.get("Material-Sun") or bpy.data.materials.new("Material-Sun")
+def make_transparent_sun_material(texture_path=None, strength=8.0, tint=(1.0, 0.9, 0.6, 1.0)):
+    # Dynamic name based on tint
+    mat_name = f"SunMat_{int(tint[0]*100)}_{int(tint[1]*100)}"
+    mat = bpy.data.materials.new(name=mat_name)
     mat.use_nodes = True
-    nt = mat.node_tree; nt.nodes.clear()
-    out = nt.nodes.new("ShaderNodeOutputMaterial"); out.location = (300,0)
-    emi = nt.nodes.new("ShaderNodeEmission"); emi.location = (80,0)
-    emi.inputs["Color"].default_value    = tint
-    emi.inputs["Strength"].default_value = strength
-    nt.links.new(emi.outputs["Emission"], out.inputs["Surface"])
-    return mat
-
-def make_transparent_sun_material(texture_path=None, strength=5.0, tint=(1.0, 0.9, 0.6, 1.0)):
-    mat = bpy.data.materials.get("Material-Sun") or bpy.data.materials.new("Material-Sun")
-    mat.use_nodes = True
-    # 'HASHED' or 'BLEND' works, but HASHED often looks less "glassy" in EEVEE
-    mat.blend_method = 'HASHED' 
+    
+    # Set to Opaque as we removed the Transparent node
+    mat.blend_method = 'OPAQUE' 
     
     nt = mat.node_tree
     nt.nodes.clear()
 
-    # Create Nodes
+    # 1. Create Core Nodes from your screenshot
     node_out  = nt.nodes.new("ShaderNodeOutputMaterial")
-    node_mix  = nt.nodes.new("ShaderNodeMixShader")
     node_emi  = nt.nodes.new("ShaderNodeEmission")
-    node_tran = nt.nodes.new("ShaderNodeBsdfTransparent")
+    node_bw   = nt.nodes.new("ShaderNodeRGBToBW")
+    
+    # The Multiply node (Mix node set to Multiply)
+    node_mult = nt.nodes.new("ShaderNodeMix")
+    node_mult.data_type = 'RGBA'
+    node_mult.blend_type = 'MULTIPLY'
+    node_mult.inputs["Factor"].default_value = 1.0
+    
+    # 2. Fresnel/Facing Logic (Layer Weight -> Color Ramp)
     node_fres = nt.nodes.new("ShaderNodeLayerWeight")
-    node_ramp = nt.nodes.new("ShaderNodeValToRGB") # THE FIX: Adds density control
-
-    node_ramp.color_ramp.elements[0].position = 0.2
-    node_ramp.color_ramp.elements[0].color = (0.4, 0.4, 0.4, 1.0)
+    node_ramp = nt.nodes.new("ShaderNodeValToRGB") 
     
-    node_emi.inputs["Strength"].default_value = strength
-    node_fres.inputs["Blend"].default_value = 0.5 
+    # Match your screenshot values (Blend 0.700)
+    node_fres.inputs["Blend"].default_value = 0.700
+    node_ramp.color_ramp.elements[0].position = 0.0
+    node_ramp.color_ramp.elements[1].position = 1.0
     
-    # Texture / Color
+    # 3. Handling the Texture -> BW -> Mix Slot A
     if texture_path and os.path.exists(texture_path):
-        try:
-            img = bpy.data.images.load(texture_path)
-            node_tex = nt.nodes.new("ShaderNodeTexImage")
-            node_tex.image = img
-            nt.links.new(node_tex.outputs["Color"], node_emi.inputs["Color"])
-        except:
-            node_emi.inputs["Color"].default_value = tint
+        node_tex = nt.nodes.new("ShaderNodeTexImage")
+        node_tex.image = bpy.data.images.load(texture_path)
+        
+        # Link Texture to RGB to BW
+        nt.links.new(node_tex.outputs["Color"], node_bw.inputs["Color"])
+        # Link BW Result to Mix Slot A (Index 6)
+        nt.links.new(node_bw.outputs["Val"], node_mult.inputs[6])
     else:
-        node_emi.inputs["Color"].default_value = tint
+        # Fallback: if no texture, keep Slot A white so tint shows fully
+        node_mult.inputs[6].default_value = (1.0, 1.0, 1.0, 1.0)
 
-    nt.links.new(node_fres.outputs["Facing"], node_ramp.inputs["Fac"])
-    nt.links.new(node_ramp.outputs["Color"], node_mix.inputs["Fac"])
+    # 4. FEEDING THE TINT INTO THE COLOR MIXER (Slot B / Index 7)
+    node_mult.inputs[7].default_value = tint
+
+    # 5. Emission and Final Output
+    node_emi.inputs["Strength"].default_value = strength
+
+    # Connect the Multiplied (Tinted) result to Emission Color
+    nt.links.new(node_mult.outputs[2], node_emi.inputs["Color"])
     
-    nt.links.new(node_tran.outputs["BSDF"], node_mix.inputs[1])
-    nt.links.new(node_emi.outputs["Emission"], node_mix.inputs[2])
-    nt.links.new(node_mix.outputs["Shader"], node_out.inputs["Surface"])
+    # Connect the Facing to Color Ramp (Following your screenshot's logic)
+    nt.links.new(node_fres.outputs["Facing"], node_ramp.inputs["Fac"])
+
+    # Output to Surface
+    nt.links.new(node_emi.outputs["Emission"], node_out.inputs["Surface"])
 
     return mat
 
-#def make_ring_material(name, alpha=RING_ALPHA):
-#    mat = bpy.data.materials.get(f"Rings-{name}") or bpy.data.materials.new(f"Rings-{name}")
-#    mat.use_nodes = True
-#    nt = mat.node_tree; nt.nodes.clear()
-#    out = nt.nodes.new("ShaderNodeOutputMaterial"); out.location = (300,0)
-#    mix = nt.nodes.new("ShaderNodeMixShader"); mix.location = (100,0)
-#    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled"); bsdf.location = (-150,80)
-#    tr   = nt.nodes.new("ShaderNodeBsdfTransparent"); tr.location = (-150,-120)
-#    fac  = nt.nodes.new("ShaderNodeValue"); fac.location = (-350, -20); fac.outputs[0].default_value = 1.0 - alpha
-#    bsdf.inputs["Roughness"].default_value = 0.25
-#    nt.links.new(fac.outputs[0], mix.inputs[0])
-#    nt.links.new(tr.outputs["BSDF"], mix.inputs[1])
-#    nt.links.new(bsdf.outputs["BSDF"], mix.inputs[2])
-#    nt.links.new(mix.outputs["Shader"], out.inputs["Surface"])
-#    return mat
 
 def make_ring_material(name, alpha_val):
     mat_name = f"Material-Rings-{name}"

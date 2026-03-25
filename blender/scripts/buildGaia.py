@@ -46,7 +46,7 @@ SYSTEM_SCALE = 1
 RING_ALPHA   = 0.55
 
 # Control how many Gaia objects to load (set to 0 to skip, or up to 30000)
-NUM_GAIA_OBJECTS = 500  # Change this value to load more/fewer objects
+NUM_GAIA_OBJECTS = 2500  # Change this value to load more/fewer objects
 
 BASE_DIR = bpy.path.abspath("//")
 TEX_DIR = os.path.join(BASE_DIR, "assets", "textures")
@@ -115,19 +115,53 @@ class AstroObject:
 # SCALE FACTORS
 # =========================
 RADIUS_SCALE = 1e-6
-ORBIT_SCALE  = 20
+ORBIT_SCALE  = 100
 
 def get_star_color(bp_rp_str):
-    """Maps the BP-RP color index to a rough RGBA tuple."""
+    """
+    Interpolates between high-detail anchor points to provide a 
+    unique, varied tint for any BP-RP value.
+    """
     try:
         val = float(bp_rp_str)
-        if val < 0.0: return (0.7, 0.8, 1.0, 1.0)    # Blueish
-        elif val < 0.5: return (0.9, 0.9, 1.0, 1.0)  # White-Blue
-        elif val < 1.0: return (1.0, 0.95, 0.8, 1.0) # Yellow (Sun-like)
-        elif val < 2.0: return (1.0, 0.7, 0.4, 1.0)  # Orange
-        else: return (1.0, 0.4, 0.4, 1.0)            # Red
     except (ValueError, TypeError):
-        return (1.0, 1.0, 1.0, 1.0) # Default White
+        return (1.0, 1.0, 1.0, 1.0)
+
+    # Anchor points: (BP-RP Value, (R, G, B, A))
+    # These are calibrated to be "Blender-safe" (Saturated enough to survive Emission)
+    anchors = [
+        (-0.5, (0.5, 0.7, 1.0, 1.0)),  # Class O: Deep Blue
+        (0.0,  (0.7, 0.85, 1.0, 1.0)), # Class B: Light Blue
+        (0.3,  (0.9, 0.95, 1.0, 1.0)), # Class A: Blue-White
+        (0.6,  (1.0, 1.0, 0.9, 1.0)),  # Class F: Pure White
+        (0.9,  (1.0, 0.9, 0.5, 1.0)),  # Class G: Sun-like Yellow
+        (1.5,  (1.0, 0.5, 0.1, 1.0)),  # Class K: Deep Orange
+        (2.5,  (1.0, 0.2, 0.05, 1.0)), # Class M: Deep Red
+        (4.0,  (0.8, 0.1, 0.0, 1.0))   # Class M (Late): Dark Blood Red
+    ]
+
+    # Handle values outside our anchor range
+    if val <= anchors[0][0]: return anchors[0][1]
+    if val >= anchors[-1][0]: return anchors[-1][1]
+
+    # Find the two anchors to interpolate between
+    for i in range(len(anchors) - 1):
+        v1, c1 = anchors[i]
+        v2, c2 = anchors[i+1]
+        
+        if v1 <= val <= v2:
+            # Calculate the interpolation factor (0.0 to 1.0)
+            fac = (val - v1) / (v2 - v1)
+            
+            # Linearly interpolate each channel (R, G, B)
+            return (
+                c1[0] + (c2[0] - c1[0]) * fac,
+                c1[1] + (c2[1] - c1[1]) * fac,
+                c1[2] + (c2[2] - c1[2]) * fac,
+                1.0
+            )
+
+    return (1.0, 1.0, 1.0, 1.0)
 
 # =========================
 # GAIA DATA LOADER
@@ -156,22 +190,26 @@ def load_gaia_objects(csv_path, num_objects=100):
     gaia_objects = {}
 
     try:
+        total_rows_estimate = 100000 
+        step = max(1, total_rows_estimate // num_objects)
+
         with open(csv_path, 'r', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile)
 
             for idx, row in enumerate(reader):
-                if idx >= num_objects:
+                # ONLY process every 'step' rows
+                if idx % step != 0:
+                    continue
+                    
+                if len(gaia_objects) >= num_objects:
                     break
                 
-                #1
                 name = row['source_id']  
 
-                #2
                 dist = 0.0
                 if row.get('distance_pc'):
                     dist = float(row['distance_pc'])
                 elif row.get('parallax') and float(row['parallax']) > 0:
-                    # distance in pc = 1000 / parallax in mas
                     dist = 1000.0 / float(row['parallax'])              
                 
                 if dist <= 0:
@@ -186,9 +224,9 @@ def load_gaia_objects(csv_path, num_objects=100):
                 
                 location = (round(x, 4), round(y, 4), round(z, 4))
 
+                # This now uses your detailed interpolation tint function
                 color = get_star_color(row.get('bp_rp'))
 
-                # Create object configuration
                 gaia_objects[name] = dict(
                     name=name,
                     radius=1.0,
@@ -197,7 +235,7 @@ def load_gaia_objects(csv_path, num_objects=100):
                     texture=os.path.join(TEX_DIR, "8k_sun.jpg"),
                     color=color
                 )
-        
+
         print(f"Successfully loaded {len(gaia_objects)} Gaia objects")
         
     except Exception as e:
