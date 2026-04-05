@@ -103,63 +103,52 @@ def make_planet_material(name, color=(0.8,0.8,0.8,1.0), texture_path=None, rough
     return mat
 
 def make_transparent_sun_material(texture_path=None, strength=8.0, tint=(1.0, 0.9, 0.6, 1.0)):
-    # Dynamic name based on tint
-    mat_name = f"SunMat_{int(tint[0]*100)}_{int(tint[1]*100)}"
+    # Unique name based on tint to prevent material sharing across different colored stars
+    mat_name = f"SunMat_{hash(tint)}" 
     mat = bpy.data.materials.new(name=mat_name)
     mat.use_nodes = True
-    
-    # Set to Opaque as we removed the Transparent node
     mat.blend_method = 'OPAQUE' 
     
     nt = mat.node_tree
     nt.nodes.clear()
 
-    # 1. Create Core Nodes from your screenshot
+    # Create Nodes
     node_out  = nt.nodes.new("ShaderNodeOutputMaterial")
     node_emi  = nt.nodes.new("ShaderNodeEmission")
     node_bw   = nt.nodes.new("ShaderNodeRGBToBW")
     
-    # The Multiply node (Mix node set to Multiply)
+    # Use the new Mix Node (Blender 3.4+)
     node_mult = nt.nodes.new("ShaderNodeMix")
     node_mult.data_type = 'RGBA'
     node_mult.blend_type = 'MULTIPLY'
     node_mult.inputs["Factor"].default_value = 1.0
     
-    # 2. Fresnel/Facing Logic (Layer Weight -> Color Ramp)
+    # Fresnel Logic
     node_fres = nt.nodes.new("ShaderNodeLayerWeight")
     node_ramp = nt.nodes.new("ShaderNodeValToRGB") 
-    
-    # Match your screenshot values (Blend 0.700)
     node_fres.inputs["Blend"].default_value = 0.700
-    node_ramp.color_ramp.elements[0].position = 0.0
-    node_ramp.color_ramp.elements[1].position = 1.0
-    
-    # 3. Handling the Texture -> BW -> Mix Slot A
-    if texture_path and os.path.exists(texture_path):
-        node_tex = nt.nodes.new("ShaderNodeTexImage")
-        node_tex.image = bpy.data.images.load(texture_path)
-        
-        # Link Texture to RGB to BW
-        nt.links.new(node_tex.outputs["Color"], node_bw.inputs["Color"])
-        # Link BW Result to Mix Slot A (Index 6)
-        nt.links.new(node_bw.outputs["Val"], node_mult.inputs[6])
-    else:
-        # Fallback: if no texture, keep Slot A white so tint shows fully
-        node_mult.inputs[6].default_value = (1.0, 1.0, 1.0, 1.0)
 
-    # 4. FEEDING THE TINT INTO THE COLOR MIXER (Slot B / Index 7)
+    # 4. FIX: Apply the TINT directly to the Mix Node
+    # In 'RGBA' Mix nodes, Socket 6 is 'A' and Socket 7 is 'B'
     node_mult.inputs[7].default_value = tint
 
-    # 5. Emission and Final Output
+    if texture_path and os.path.exists(texture_path):
+        node_tex = nt.nodes.new("ShaderNodeTexImage")
+        try:
+            node_tex.image = bpy.data.images.load(texture_path)
+            nt.links.new(node_tex.outputs["Color"], node_bw.inputs["Color"])
+            nt.links.new(node_bw.outputs["Val"], node_mult.inputs[6])
+        except:
+            node_mult.inputs[6].default_value = (1.0, 1.0, 1.0, 1.0)
+    else:
+        node_mult.inputs[6].default_value = (1.0, 1.0, 1.0, 1.0)
+
+    # Emission Settings
     node_emi.inputs["Strength"].default_value = strength
 
-    # Connect the Multiplied (Tinted) result to Emission Color
-    nt.links.new(node_mult.outputs[2], node_emi.inputs["Color"])
-    
-    # Connect the Facing to Color Ramp (Following your screenshot's logic)
+    # Connect Multiplied (Tinted) result to Emission Color
+    nt.links.new(node_mult.outputs["Result"], node_emi.inputs["Color"])
     nt.links.new(node_fres.outputs["Facing"], node_ramp.inputs["Fac"])
-
-    # Output to Surface
     nt.links.new(node_emi.outputs["Emission"], node_out.inputs["Surface"])
 
     return mat
